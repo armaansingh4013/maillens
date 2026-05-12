@@ -1,0 +1,95 @@
+import { oauth2Client } from "../config/google.js";
+import { google } from "googleapis";
+import prisma from "../db/prisma.js";
+
+export const googleLogin = async (req, res) => {
+  const scopes = [
+    "https://www.googleapis.com/auth/gmail.readonly",
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/userinfo.email",
+    "https://www.googleapis.com/auth/userinfo.profile",
+  ];
+
+  const url = oauth2Client.generateAuthUrl({
+    access_type: "offline",
+    prompt: "consent",
+    scope: scopes,
+  });
+
+  res.redirect(url);
+};
+
+export const googleCallback = async (req, res) => {
+  try {
+    const code = req.query.code;
+
+    if (!code) {
+      return res.status(400).json({ ok: false, error: "No code received from Google" });
+    }
+
+    const { tokens } = await oauth2Client.getToken(code);
+    oauth2Client.setCredentials(tokens);
+
+    const oauth2 = google.oauth2({
+      auth: oauth2Client,
+      version: "v2",
+    });
+
+    const { data } = await oauth2.userinfo.get();
+
+    const user = await prisma.user.upsert({
+      where: { email: data.email },
+      update: {
+        name: data.name,
+        googleId: data.id,
+      },
+      create: {
+        email: data.email,
+        name: data.name,
+        googleId: data.id,
+      },
+    });
+
+    const existingToken = await prisma.oauthToken.findFirst({
+      where: {
+        userId: user.id,
+        provider: "google",
+      },
+    });
+
+    if (existingToken) {
+      await prisma.oauthToken.update({
+        where: { id: existingToken.id },
+        data: {
+          accessToken: tokens.access_token || existingToken.accessToken,
+          refreshToken: tokens.refresh_token || existingToken.refreshToken,
+          expiryDate: tokens.expiry_date ? new Date(tokens.expiry_date) : existingToken.expiryDate,
+          scope: tokens.scope || existingToken.scope,
+        },
+      });
+    } else {
+      await prisma.oauthToken.create({
+        data: {
+          userId: user.id,
+          provider: "google",
+          accessToken: tokens.access_token || null,
+          refreshToken: tokens.refresh_token || null,
+          expiryDate: tokens.expiry_date ? new Date(tokens.expiry_date) : null,
+          scope: tokens.scope || null,
+        },
+      });
+    }
+
+    return res.json({
+      ok: true,
+      message: "Google OAuth successful and saved",
+      user,
+    });
+  } catch (error) {
+    console.error("Google callback error:", error);
+    return res.status(500).json({
+      ok: false,
+      error: error.message,
+    });
+  }
+};

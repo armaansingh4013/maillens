@@ -1,0 +1,16 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: maillens-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: maillens
+    ports:
+      - "5432:5432"
+    volumes:
+      - maillens_postgres_data:/var/lib/postgresql/data
+
+volumes:
+  maillens_postgres_data:

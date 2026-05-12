@@ -1,0 +1,175 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String       @id @default(cuid())
+  email     String       @unique
+  name      String?
+  googleId  String?      @unique
+  createdAt DateTime     @default(now())
+  tokens    OauthToken[]
+  emails    Email[]
+  digests DailyDigest[]
+  syncState GmailSyncState?
+  chunks EmailChunk[]
+    memories  EmailMemory[]
+}
+
+model OauthToken {
+  id           String   @id @default(cuid())
+  userId       String
+  provider     String
+  accessToken  String?
+  refreshToken String?
+  expiryDate   DateTime?
+  scope        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Email {
+  id             String        @id @default(cuid())
+  userId         String
+  gmailMessageId String        @unique
+  threadId       String?
+  fromEmail      String?
+  subject        String?
+  snippet        String?
+  bodyText       String?
+  internalDate   DateTime?
+  createdAt      DateTime      @default(now())
+  isSummarized   Boolean       @default(false)
+  summary        EmailSummary?
+  isIgnored      Boolean       @default(false)
+  ignoreReason   String?
+  sourceDomain   String?
+  syncSource     String?
+  chunks EmailChunk[]
+  isEmbedded Boolean @default(false)
+  
+
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model EmailSummary {
+  id             String   @id @default(cuid())
+  emailId        String   @unique
+  shortSummary   String
+  actionRequired Boolean  @default(false)
+  actionItem     String?
+  category       String?
+  importance     String?
+  createdAt      DateTime @default(now())
+  includeInDigest Boolean  @default(true)
+  topic           String?
+
+
+
+  platform        String?
+
+  serviceType     String?
+
+  accountType     String?
+
+  amount          String?
+
+  dueDate         DateTime?
+
+  tags            String[] @default([])
+  
+  email          Email    @relation(fields: [emailId], references: [id], onDelete: Cascade)
+}
+
+model DailyDigest {
+  id          String   @id @default(cuid())
+  userId      String
+  digestDate  DateTime
+  content     String
+  createdAt   DateTime @default(now())
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+    
+  @@unique([userId, digestDate])
+
+}
+
+
+
+model GmailSyncState {
+  id                       String   @id @default(cuid())
+  userId                   String   @unique
+  lastHistoryId            String?
+  lastSyncAt               DateTime?
+
+  initialBackfillCompleted Boolean  @default(false)
+  backfillStartedAt        DateTime?
+  backfillCompletedAt      DateTime?
+  backfillNextPageToken    String?
+  backfillProcessedCount   Int      @default(0)
+
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+
+  user                     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+
+model WorkerState {
+  id              String   @id @default(cuid())
+  workerName      String   @unique
+  isRunning       Boolean  @default(false)
+  startedAt       DateTime?
+  lastHeartbeatAt DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+
+
+model EmailChunk {
+  id         String                @id @default(cuid())
+  userId     String
+  emailId    String
+  chunkIndex Int
+  content    String
+  embedding  Unsupported("vector")?
+  createdAt  DateTime              @default(now())
+
+  user       User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  email      Email                 @relation(fields: [emailId], references: [id], onDelete: Cascade)
+
+  @@unique([emailId, chunkIndex])
+  @@index([userId])
+}
+
+
+
+
+
+model EmailMemory {
+  id          String   @id @default(cuid())
+  userId      String
+  emailId     String?
+
+  memoryType  String
+  title       String
+  value       String?
+  confidence  Float?
+  source      String?
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([memoryType])
+}
