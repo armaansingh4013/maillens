@@ -2,6 +2,27 @@ import { oauth2Client } from "../config/google.js";
 import { google } from "googleapis";
 import prisma from "../db/prisma.js";
 
+const frontendUrl =
+  process.env.FRONTEND_URL ||
+  process.env.CLIENT_URL ||
+  "http://localhost:5173";
+
+function buildFrontendRedirect(path, params) {
+  const url = new URL(path, frontendUrl);
+
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== null) {
+      url.searchParams.set(key, String(value));
+    }
+  });
+
+  return url.toString();
+}
+
+function encodeAuthPayload(payload) {
+  return Buffer.from(JSON.stringify(payload)).toString("base64url");
+}
+
 export const googleLogin = async (req, res) => {
   const scopes = [
     "https://www.googleapis.com/auth/gmail.readonly",
@@ -80,16 +101,29 @@ export const googleCallback = async (req, res) => {
       });
     }
 
-    return res.json({
+    const authPayload = encodeAuthPayload({
       ok: true,
-      message: "Google OAuth successful and saved",
-      user,
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+      },
     });
+
+    return res.redirect(
+      buildFrontendRedirect("/dashboard", {
+        auth: authPayload,
+      })
+    );
   } catch (error) {
     console.error("Google callback error:", error);
-    return res.status(500).json({
-      ok: false,
-      error: error.message,
-    });
+
+    return res.redirect(
+      buildFrontendRedirect("/", {
+        authError:
+          error.message ||
+          "Google OAuth failed. Please try again.",
+      })
+    );
   }
 };
