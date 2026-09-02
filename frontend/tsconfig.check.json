@@ -1,0 +1,21 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "lib": ["ES2020", "DOM"],
+    "jsx": "react-jsx",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "allowJs": true
+  },
+  "include": [
+    "src/components/dashboard/InsightsDashboard.tsx",
+    "src/types/index.ts",
+    "src/hooks/useAsync.ts",
+    "src/lib/api.ts",
+    "src/lib/constants.ts"
+  ]
+}

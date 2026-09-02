@@ -1,5 +1,5 @@
 import { ChatPromptTemplate } from "@langchain/core/prompts";
-import { llm } from "../llm";
+import { llm } from "../llm.js";
 
 const prompt = ChatPromptTemplate.fromTemplate(`
 You are Mail Lens AI.

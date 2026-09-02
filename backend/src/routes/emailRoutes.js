@@ -1,8 +1,13 @@
 import express from "express";
-import { processEmails } from "../controllers/emailController";
+import {
+  getDbEmails,
+  processEmails,
+} from "../controllers/emailController.js";
 
 const router = express.Router();
 
+router.get("/db", getDbEmails);
 router.post("/", processEmails);
+router.post("/process", processEmails);
 
 export default router;

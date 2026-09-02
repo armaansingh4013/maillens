@@ -1,10 +1,22 @@
 import { getGmailClient } from "../services/gmailService.js";
 import prisma from "../db/prisma.js";
 import { summarizeEmail } from "../services/summarizerService.js";
-import { getMessageIdsForSync } from "../services/gmailSyncService.js";
+import {
+  getMessageIdsForSync,
+  sendEmail,
+  replyEmail,
+  forwardEmail,
+  archiveEmail,
+  trashEmail,
+} from "../services/gmailSyncService.js";
 import { runEmailSyncForUser } from "../jobs/syncEmailsJob.js";
 import { runSummarizeForUser } from "../jobs/summarizeEmailsJob.js";
 import { runEmbeddingForUser } from "../jobs/embedEmailsJob.js";
+
+function toRecipientString(value) {
+  if (Array.isArray(value)) return value.filter(Boolean).join(", ");
+  return value || "";
+}
 
 
 export const summarizeNow = async (req, res) => {
@@ -142,6 +154,10 @@ function extractBody(payload) {
   return null;
 }
 
+function isNotFoundError(error) {
+  return error?.code === 404 || error?.response?.status === 404;
+}
+
 export const getEmails = async (req, res) => {
     try {
       const userId = req.query.userId;
@@ -157,54 +173,68 @@ export const getEmails = async (req, res) => {
   
       let latestHistoryId = null;
   
-      const detailedMessages = await Promise.all(
+      const messageResults = await Promise.all(
         messageIds.map(async (messageId) => {
-          const detail = await gmail.users.messages.get({
-            userId: "me",
-            id: messageId,
-          });
+          try {
+            const detail = await gmail.users.messages.get({
+              userId: "me",
+              id: messageId,
+              format: "full",
+            });
+            if (detail.data.historyId) {
+              latestHistoryId = detail.data.historyId;
+            }
   
-          if (detail.data.historyId) {
-            latestHistoryId = detail.data.historyId;
-          }
+            const payload = detail.data.payload;
+            const headers = payload?.headers || [];
+            const bodyText = extractBody(payload);
   
-          const payload = detail.data.payload;
-          const headers = payload?.headers || [];
-          const bodyText = extractBody(payload);
-  
-          const emailData = {
-            userId,
-            gmailMessageId: detail.data.id,
-            threadId: detail.data.threadId || null,
-            snippet: detail.data.snippet || null,
-            subject: getHeader(headers, "Subject"),
-            fromEmail: getHeader(headers, "From"),
-            bodyText,
-            internalDate: detail.data.internalDate
-              ? new Date(Number(detail.data.internalDate))
-              : null,
-          };
-  
-          await prisma.email.upsert({
-            where: {
+            const emailData = {
+              userId,
               gmailMessageId: detail.data.id,
-            },
-            update: emailData,
-            create: emailData,
-          });
+              threadId: detail.data.threadId || null,
+              snippet: detail.data.snippet || null,
+              subject: getHeader(headers, "Subject"),
+              fromEmail: getHeader(headers, "From"),
+              bodyText,
+              internalDate: detail.data.internalDate
+                ? new Date(Number(detail.data.internalDate))
+                : null,
+            };
   
-          return {
-            id: detail.data.id,
-            threadId: detail.data.threadId,
-            snippet: detail.data.snippet || null,
-            subject: emailData.subject,
-            from: emailData.fromEmail,
-            date: getHeader(headers, "Date"),
-            body: bodyText,
-            historyId: detail.data.historyId || null,
-          };
+            await prisma.email.upsert({
+              where: {
+                gmailMessageId: detail.data.id,
+              },
+              update: emailData,
+              create: emailData,
+            });
+  
+            return {
+              id: detail.data.id,
+              threadId: detail.data.threadId,
+              snippet: detail.data.snippet || null,
+              subject: emailData.subject,
+              from: emailData.fromEmail,
+              date: getHeader(headers, "Date"),
+              body: bodyText,
+              historyId: detail.data.historyId || null,
+            };
+          } catch (error) {
+            if (isNotFoundError(error)) {
+              console.warn(
+                `Skipping Gmail message ${messageId}: not found`
+              );
+
+              return null;
+            }
+
+            throw error;
+          }
         })
       );
+
+      const detailedMessages = messageResults.filter(Boolean);
   
       if (latestHistoryId) {
         await prisma.gmailSyncState.upsert({
@@ -263,3 +293,120 @@ export const getEmails = async (req, res) => {
       });
     }
   };
+
+export const sendEmailNow = async (req, res) => {
+  try {
+    const { userId, to, cc, bcc, subject, body } = req.body || {};
+
+    if (!userId || !to || !subject) {
+      return res.status(400).json({ ok: false, error: "userId, to and subject are required" });
+    }
+
+    const result = await sendEmail({
+      userId,
+      to: toRecipientString(to),
+      cc: toRecipientString(cc),
+      bcc: toRecipientString(bcc),
+      subject,
+      body: body || "",
+    });
+
+    return res.json({ ok: true, result });
+  } catch (error) {
+    console.error("Send email error:", error);
+    return res.status(500).json({ ok: false, error: error.message });
+  }
+};
+
+export const replyEmailNow = async (req, res) => {
+  try {
+    const { userId, threadId, messageId, to, subject, body } = req.body || {};
+
+    if (!userId || !to || !threadId) {
+      return res.status(400).json({ ok: false, error: "userId, threadId and to are required" });
+    }
+
+    const result = await replyEmail({
+      userId,
+      threadId,
+      messageId,
+      to: toRecipientString(to),
+      subject: subject || "",
+      body: body || "",
+    });
+
+    return res.json({ ok: true, result });
+  } catch (error) {
+    console.error("Reply email error:", error);
+    return res.status(500).json({ ok: false, error: error.message });
+  }
+};
+
+export const forwardEmailNow = async (req, res) => {
+  try {
+    const { userId, to, subject, originalBody, comment } = req.body || {};
+
+    if (!userId || !to) {
+      return res.status(400).json({ ok: false, error: "userId and to are required" });
+    }
+
+    const result = await forwardEmail({
+      userId,
+      to: toRecipientString(to),
+      subject: subject || "",
+      originalBody: originalBody || "",
+      comment: comment || "",
+    });
+
+    return res.json({ ok: true, result });
+  } catch (error) {
+    console.error("Forward email error:", error);
+    return res.status(500).json({ ok: false, error: error.message });
+  }
+};
+
+export const archiveEmailNow = async (req, res) => {
+  try {
+    const { userId, gmailMessageId } = req.body || {};
+
+    if (!userId || !gmailMessageId) {
+      return res.status(400).json({ ok: false, error: "userId and gmailMessageId are required" });
+    }
+
+    const result = await archiveEmail({ userId, gmailMessageId });
+
+    // Reflect it locally too, so /emails/db (which filters isIgnored:false)
+    // stops showing this email without waiting for the next Gmail sync.
+    await prisma.email.updateMany({
+      where: { gmailMessageId, userId },
+      data: { isIgnored: true, ignoreReason: "archived" },
+    });
+
+    return res.json({ ok: true, result });
+  } catch (error) {
+    console.error("Archive email error:", error);
+    return res.status(500).json({ ok: false, error: error.message });
+  }
+};
+
+export const trashEmailNow = async (req, res) => {
+  try {
+    const { userId, gmailMessageId } = req.body || {};
+
+    if (!userId || !gmailMessageId) {
+      return res.status(400).json({ ok: false, error: "userId and gmailMessageId are required" });
+    }
+
+    const result = await trashEmail({ userId, gmailMessageId });
+
+    await prisma.email.updateMany({
+      where: { gmailMessageId, userId },
+      data: { isIgnored: true, ignoreReason: "deleted" },
+    });
+
+    return res.json({ ok: true, result });
+  } catch (error) {
+    console.error("Trash email error:", error);
+    return res.status(500).json({ ok: false, error: error.message });
+  }
+};

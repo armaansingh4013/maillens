@@ -70,7 +70,6 @@ export const runEmailSyncForUser = async (userId) => {
       userId: "me",
       id: messageId,
     });
-
     if (detail.data.historyId) {
       latestHistoryId = detail.data.historyId;
     }
@@ -125,7 +124,7 @@ export const runEmailSyncForUser = async (userId) => {
 };
 
 export const startEmailSyncJob = () => {
-  cron.schedule("*/30 * * * *", async () => {
+  cron.schedule("*/10 * * * *", async () => {
     console.log("Running email sync job...");
 
     try {

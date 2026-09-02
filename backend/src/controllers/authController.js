@@ -109,7 +109,6 @@ export const googleCallback = async (req, res) => {
         name: user.name,
       },
     });
-
     return res.redirect(
       buildFrontendRedirect("/dashboard", {
         auth: authPayload,

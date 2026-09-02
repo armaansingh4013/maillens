@@ -1,46 +1,32 @@
 import cron from "node-cron";
 import prisma from "../db/prisma.js";
-import { buildDailyDigest } from "../services/digestService.js";
+import { buildAndSaveTodayDigest } from "../services/digestBuilderService.js";
+import { sendDigestEmail } from "../services/digestMailer.js";
+
+export const runDigestForUser = async (user) => {
+  const { digest, stats } = await buildAndSaveTodayDigest(user.id);
+  const mail = await sendDigestEmail({ user, digestContent: digest.content, stats });
+  return { digest, stats, mail };
+};
 
 export const startDigestJob = () => {
+  // Every evening at 7pm — builds the day's digest and emails it out.
   cron.schedule("0 19 * * *", async () => {
     console.log("Running daily digest job...");
 
-    const users = await prisma.user.findMany();
+    try {
+      const users = await prisma.user.findMany();
 
-    const start = new Date();
-    start.setHours(0, 0, 0, 0);
-
-    for (const user of users) {
-      const summaries = await prisma.emailSummary.findMany({
-        where: {
-          email: {
-            userId: user.id,
-            internalDate: {
-              gte: start,
-            },
-          },
-        },
-      });
-
-      const digest = buildDailyDigest(summaries);
-
-      await prisma.dailyDigest.upsert({
-        where: {
-          userId_digestDate: {
-            userId: user.id,
-            digestDate: start,
-          },
-        },
-        update: {
-          content: digest,
-        },
-        create: {
-          userId: user.id,
-          digestDate: start,
-          content: digest,
-        },
-      });
+      for (const user of users) {
+        try {
+          const result = await runDigestForUser(user);
+          console.log(`Digest for ${user.email}:`, result.stats, result.mail);
+        } catch (error) {
+          console.error(`Digest failed for ${user.email}:`, error.message);
+        }
+      }
+    } catch (error) {
+      console.error("Digest job failed:", error.message);
     }
 
     console.log("Digest job completed");

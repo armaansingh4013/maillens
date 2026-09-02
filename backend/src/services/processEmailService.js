@@ -1,5 +1,5 @@
-import { prisma } from "../config/prisma";
-import { processEmailWithAI } from "../ai/chains/processEmail.chain";
+import prisma from "../db/prisma.js";
+import { processEmailWithAI } from "../ai/chains/processEmail.chain.js";
 
 export async function processUnprocessedEmails(userId) {
   const emails = await prisma.email.findMany({

@@ -5,7 +5,7 @@ import { runSummarizeWorker } from "./summarizeWorkerJob.js";
 const WORKER_NAME = "email_summarizer";
 
 export const startSummarizeSupervisorJob = () => {
-  cron.schedule("*/10 * * * *", async () => {
+  cron.schedule("*/1 * * * *", async () => {
     console.log("Running summarize supervisor...");
 
     try {
